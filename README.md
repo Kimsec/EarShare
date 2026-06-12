@@ -1,8 +1,10 @@
-<br>
+<p align="center">
+  <img width="220" src="UI/Assets/earshare.svg" alt="EarShare Logo">
+</p>
 <h1 align="center">EarShare 🎧</h1>
 
 <p align="center">
-  <strong>Play your audio on several headsets at once 🔊</strong><br><br>
+  <strong>Play your audio on several headsets at once 🔊</strong><br>
   <strong>EarShare</strong> takes whatever your PC is playing and mirrors it to as many audio devices as you like.
 </p>
 <br><p align="center" width="100%">
