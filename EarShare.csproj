@@ -9,6 +9,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Version>1.0.0</Version>
+    <ApplicationIcon>UI\Assets\earshare.ico</ApplicationIcon>
     <InvariantGlobalization>true</InvariantGlobalization>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- WinForms does not support IL trimming (PublishTrimmed); single-file publish
@@ -22,6 +23,11 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- embedded so the window/taskbar icon survives single-file publish -->
+    <EmbeddedResource Include="UI\Assets\earshare.ico" />
   </ItemGroup>
 
 </Project>

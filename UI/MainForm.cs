@@ -19,6 +19,7 @@ public sealed class MainForm : Form
 
     private readonly NotifyIcon tray;
     private readonly ToolStripMenuItem trayToggle;
+    private readonly Icon appIcon = LoadAppIcon();
     private readonly Icon idleIcon = TrayIconFactory.Create(active: false);
     private readonly Icon activeIcon = TrayIconFactory.Create(active: true);
 
@@ -35,7 +36,7 @@ public sealed class MainForm : Form
         settings = AppSettings.Load();
 
         Text = "EarShare";
-        Icon = idleIcon;
+        Icon = appIcon;
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96f, 96f);
@@ -267,11 +268,12 @@ public sealed class MainForm : Form
 
     private void UpdateTray()
     {
+        // window/taskbar keeps the static logo (appIcon); the tray icon doubles
+        // as a status light: gray = stopped, green = mirroring
         bool running = engine.IsRunning;
         trayToggle.Text = running ? "Stop mirroring" : "Start mirroring";
         tray.Icon = running ? activeIcon : idleIcon;
         tray.Text = running ? "EarShare — mirroring" : "EarShare — stopped";
-        Icon = tray.Icon;
     }
 
     private void OnUiTimerTick()
@@ -403,6 +405,14 @@ public sealed class MainForm : Form
     private void SaveSettings() => settings.Save();
 
     // ---------------------------------------------------------------- tray / lifecycle
+
+    private static Icon LoadAppIcon()
+    {
+        // earshare.ico is an EmbeddedResource so it works in single-file publish too
+        using var stream = typeof(MainForm).Assembly
+            .GetManifestResourceStream("EarShare.UI.Assets.earshare.ico");
+        return stream != null ? new Icon(stream) : TrayIconFactory.Create(active: false);
+    }
 
     private void SafeInvoke(Action action)
     {
