@@ -17,7 +17,9 @@ internal static class Program
             return;
         }
 
-        Application.SetHighDpiMode(HighDpiMode.SystemAware);
+        // PerMonitorV2: render sharply at the actual monitor DPI and re-lay-out when
+        // the window moves to a screen with different scaling (e.g. docking the Surface).
+        Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.Run(new MainForm());

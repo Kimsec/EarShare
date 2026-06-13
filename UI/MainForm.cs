@@ -10,12 +10,15 @@ public sealed class MainForm : Form
 
     private readonly Panel topPanel;
     private readonly Panel bottomPanel;
+    private readonly Label mirrorFromLabel;
     private readonly ComboBox captureCombo;
     private readonly Label statusLabel;
     private readonly FlowLayoutPanel deviceList;
     private readonly Button addButton;
     private readonly Button startButton;
+    private readonly Label bufferLabel;
     private readonly NumericUpDown bufferBox;
+    private readonly Label bufferMsLabel;
 
     private readonly NotifyIcon tray;
     private readonly ToolStripMenuItem trayToggle;
@@ -31,6 +34,9 @@ public sealed class MainForm : Form
 
     private IEnumerable<DeviceRow> Rows => deviceList.Controls.OfType<DeviceRow>();
 
+    /// <summary>Converts a 100 %-scale (96 DPI) pixel value to the current monitor's DPI.</summary>
+    private int Scale(double v) => (int)Math.Round(v * DeviceDpi / 96.0);
+
     public MainForm()
     {
         settings = AppSettings.Load();
@@ -38,36 +44,27 @@ public sealed class MainForm : Form
         Text = "EarShare";
         Icon = appIcon;
         StartPosition = FormStartPosition.CenterScreen;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        AutoScaleDimensions = new SizeF(96f, 96f);
-        FormBorderStyle = FormBorderStyle.FixedSingle; // height is managed automatically
+        // We scale every coordinate ourselves (see LayoutForm), so WinForms auto-scaling
+        // is turned off — one predictable mechanism that is pixel-identical at 100 %.
+        AutoScaleMode = AutoScaleMode.None;
+        FormBorderStyle = FormBorderStyle.FixedSingle; // size is managed automatically
         MaximizeBox = false;
-        ClientSize = new Size(470, 300);
+        ClientSize = new Size(470, 300); // provisional; LayoutForm sets the real size
 
         // --- top: capture source + status ---
-        topPanel = new Panel { Dock = DockStyle.Top, Height = 64 };
-        var mirrorFromLabel = new Label { Text = "Mirror from:", Location = new Point(10, 12), AutoSize = true };
-        captureCombo = new ComboBox
-        {
-            DropDownStyle = ComboBoxStyle.DropDownList,
-            Location = new Point(92, 8),
-        };
+        topPanel = new Panel { Dock = DockStyle.Top };
+        mirrorFromLabel = new Label { Text = "Mirror from:", AutoSize = true };
+        captureCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
         captureCombo.DropDown += (_, _) => PopulateCaptureCombo();
         captureCombo.SelectedIndexChanged += (_, _) => OnCaptureSelectionChanged();
         statusLabel = new Label
         {
-            Location = new Point(10, 40),
-            Height = 18,
             Text = "Stopped — add output devices, then press Start.",
             ForeColor = SystemColors.GrayText,
+            AutoSize = false,
             AutoEllipsis = true,
         };
         topPanel.Controls.AddRange(new Control[] { mirrorFromLabel, captureCombo, statusLabel });
-        topPanel.Resize += (_, _) =>
-        {
-            captureCombo.Width = topPanel.ClientSize.Width - captureCombo.Left - 10;
-            statusLabel.Width = topPanel.ClientSize.Width - 20;
-        };
 
         // --- middle: device rows ---
         deviceList = new FlowLayoutPanel
@@ -76,35 +73,31 @@ public sealed class MainForm : Form
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             AutoScroll = true,
-            Padding = new Padding(6, 2, 6, 2),
         };
         deviceList.ClientSizeChanged += (_, _) => ResizeRows();
 
         // --- bottom: actions + buffer setting ---
-        bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 48 };
-        addButton = new Button { Text = "Add device  ▾", Bounds = new Rectangle(10, 9, 120, 30) };
+        bottomPanel = new Panel { Dock = DockStyle.Bottom };
+        addButton = new Button { Text = "Add device  ▾" };
         addButton.Click += (_, _) => ShowAddDeviceMenu();
-        var bufferLabel = new Label { Text = "Buffer:", Location = new Point(142, 15), AutoSize = true };
+        bufferLabel = new Label { Text = "Buffer:", AutoSize = true };
         bufferBox = new NumericUpDown
         {
             Minimum = OutputPipeline.MinBufferMs,
             Maximum = OutputPipeline.MaxBufferMs,
             Increment = 10,
             Value = Math.Clamp(settings.BufferMs, OutputPipeline.MinBufferMs, OutputPipeline.MaxBufferMs),
-            Location = new Point(190, 12),
-            Width = 56,
             TextAlign = HorizontalAlignment.Right,
         };
         bufferBox.ValueChanged += (_, _) => OnBufferChanged();
-        var bufferMsLabel = new Label { Text = "ms", Location = new Point(248, 15), AutoSize = true, ForeColor = SystemColors.GrayText };
+        bufferMsLabel = new Label { Text = "ms", AutoSize = true, ForeColor = SystemColors.GrayText };
         var bufferTip = new ToolTip();
         string bufferHint = "Audio queued per device before playback. Lower = tighter lip-sync; raise it if you hear crackling or dropouts.";
         bufferTip.SetToolTip(bufferBox, bufferHint);
         bufferTip.SetToolTip(bufferLabel, bufferHint);
-        startButton = new Button { Text = "Start", Bounds = new Rectangle(0, 9, 120, 30) };
+        startButton = new Button { Text = "Start" };
         startButton.Click += (_, _) => ToggleMirroring();
         bottomPanel.Controls.AddRange(new Control[] { addButton, bufferLabel, bufferBox, bufferMsLabel, startButton });
-        bottomPanel.Resize += (_, _) => startButton.Left = bottomPanel.ClientSize.Width - startButton.Width - 10;
 
         Controls.Add(deviceList);   // Dock=Fill must be first in the collection
         Controls.Add(topPanel);
@@ -150,11 +143,76 @@ public sealed class MainForm : Form
                 row.SetState("not connected", error: false);
         }
         PopulateCaptureCombo();
-        UpdateWindowHeight();
 
         uiTimer = new System.Windows.Forms.Timer { Interval = 500 };
         uiTimer.Tick += (_, _) => OnUiTimerTick();
         uiTimer.Start();
+    }
+
+    // ---------------------------------------------------------------- DPI-aware layout
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        LayoutForm(); // DeviceDpi is now the real monitor DPI
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        LayoutForm(); // window dragged to a screen with different scaling
+    }
+
+    /// <summary>
+    /// Positions and sizes every control from a single DPI factor. At 100 % the factor
+    /// is 1.0, so the result is pixel-identical to the original hand-tuned layout; at
+    /// 200 % everything is exactly doubled. Device rows scale themselves the same way.
+    /// </summary>
+    private void LayoutForm()
+    {
+        SuspendLayout();
+        topPanel.SuspendLayout();
+        bottomPanel.SuspendLayout();
+
+        int pad = Scale(10);
+        int formW = Scale(420);
+        int topH = Scale(64);
+        int botH = Scale(48);
+
+        topPanel.Height = topH;
+        bottomPanel.Height = botH;
+        deviceList.Padding = new Padding(Scale(6), Scale(2), Scale(6), Scale(2));
+
+        // Fixed-width window. The docked panels follow this width, but we lay out from
+        // formW directly — reading panel.ClientSize here returns a stale width because
+        // layout is suspended, which previously pushed the Start button off-screen.
+        ClientSize = new Size(formW, ClientSize.Height);
+
+        // top panel: label, then combo tucked right after the (scaled) label text.
+        // The small floor is only a safety net against under-measured label width.
+        mirrorFromLabel.Location = new Point(pad, Scale(12));
+        int comboLeft = Math.Max(Scale(86), mirrorFromLabel.Right + Scale(4));
+        captureCombo.Location = new Point(comboLeft, Scale(8));
+        captureCombo.Width = Math.Max(Scale(80), formW - comboLeft - pad);
+        statusLabel.Location = new Point(pad, Scale(40));
+        statusLabel.Size = new Size(formW - Scale(20), Scale(18));
+
+        // bottom panel: Add (left), buffer group (after it), Start (right), vertically centred
+        addButton.Size = new Size(Scale(120), Scale(30));
+        addButton.Location = new Point(pad, (botH - addButton.Height) / 2);
+        startButton.Size = new Size(Scale(120), Scale(30));
+        startButton.Location = new Point(formW - startButton.Width - pad, (botH - startButton.Height) / 2);
+        bufferBox.Size = new Size(Scale(56), Scale(24));
+        bufferLabel.Location = new Point(addButton.Right + Scale(12), (botH - bufferLabel.Height) / 2);
+        bufferBox.Location = new Point(bufferLabel.Right + Scale(4), (botH - bufferBox.Height) / 2);
+        bufferMsLabel.Location = new Point(bufferBox.Right + Scale(2), (botH - bufferMsLabel.Height) / 2);
+
+        bottomPanel.ResumeLayout();
+        topPanel.ResumeLayout();
+        ResumeLayout();
+
+        ResizeRows();
+        UpdateWindowHeight();
     }
 
     // ---------------------------------------------------------------- capture source
@@ -375,19 +433,26 @@ public sealed class MainForm : Form
 
     private void ResizeRows()
     {
-        int width = deviceList.ClientSize.Width - 16;
+        int width = deviceList.ClientSize.Width - Scale(16);
         foreach (var row in Rows)
-            row.Width = Math.Max(200, width);
+            row.Width = Math.Max(Scale(200), width);
     }
 
-    /// <summary>Grow/shrink the window to fit the device list (capped to 3/4 of the screen, then it scrolls).</summary>
+    /// <summary>
+    /// Grow/shrink the window so its height tracks the number of output devices:
+    /// no devices = compact (just the top bar + buttons), then one row taller per
+    /// device, capped to 3/4 of the screen after which the list scrolls.
+    /// </summary>
     private void UpdateWindowHeight()
     {
-        int rowUnit = Rows.FirstOrDefault() is { } first
-            ? first.Height + first.Margin.Vertical
-            : LogicalToDeviceUnits(64);
-        int count = Math.Max(1, Rows.Count());
-        int listHeight = count * rowUnit + deviceList.Padding.Vertical + LogicalToDeviceUnits(6);
+        int count = Rows.Count();
+        int listHeight = 0;
+        if (count > 0)
+        {
+            var first = Rows.First();
+            int rowUnit = first.Height + first.Margin.Vertical;
+            listHeight = count * rowUnit + deviceList.Padding.Vertical + Scale(6);
+        }
         int desired = topPanel.Height + bottomPanel.Height + listHeight;
         int max = Screen.FromControl(this).WorkingArea.Height * 3 / 4;
         ClientSize = new Size(ClientSize.Width, Math.Min(desired, max));

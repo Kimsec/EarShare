@@ -124,32 +124,37 @@ public sealed class DeviceRow : Panel
         stateLabel.ForeColor = error ? Color.Firebrick : SystemColors.GrayText;
     }
 
-    protected override void OnFontChanged(EventArgs e)
+    protected override void OnDpiChangedAfterParent(EventArgs e)
     {
-        // fires when the row inherits the form's DPI-scaled font after being added
-        base.OnFontChanged(e);
+        // fires when the row's monitor DPI changes (window moved to another screen)
+        base.OnDpiChangedAfterParent(e);
         Relayout();
     }
 
     /// <summary>
-    /// All sizes derive from the current font height so rows look right at any
-    /// Windows display scaling, including rows added after the form was scaled
-    /// (WinForms does not rescale controls added at runtime).
+    /// All sizes derive from a single DPI factor (DeviceDpi / 96) so rows look right at
+    /// any Windows display scaling, including rows added after the window was shown
+    /// (WinForms does not rescale controls added at runtime). At 100 % the factor is
+    /// 1.0, so positions are pixel-identical to the original hand-tuned layout.
     /// </summary>
     private void Relayout()
     {
-        int fh = Font.Height;        // 15 px at 100 % scaling
-        float k = fh / 15f;
+        float k = DeviceDpi / 96f;
         int S(double v) => (int)Math.Round(v * k);
+
+        var margin = new Padding(S(2), S(3), S(2), S(3));
+        if (Margin != margin)
+            Margin = margin;
 
         int desiredHeight = S(58);
         if (Height != desiredHeight)
             Height = desiredHeight;  // re-enters Relayout once; values are idempotent
 
         int w = ClientSize.Width;
+        int labelH = S(18);
 
-        nameLabel.Height = fh + 3;
-        stateLabel.Height = fh + 3;
+        nameLabel.Height = labelH;
+        stateLabel.Height = labelH;
         stateLabel.Width = S(170);
         nameLabel.Location = new Point(S(8), S(6));
         stateLabel.Location = new Point(w - stateLabel.Width - S(8), S(6));
@@ -162,7 +167,7 @@ public sealed class DeviceRow : Panel
         delayBox.Width = S(54);
         delayBox.Location = new Point(msLabel.Left - delayBox.Width - S(2), rowY + S(2));
         percentLabel.Width = S(42);
-        percentLabel.Height = fh + 3;
+        percentLabel.Height = labelH;
         percentLabel.Location = new Point(delayBox.Left - percentLabel.Width - S(6), rowY + S(5));
         volumeBar.Height = S(26);
         volumeBar.Location = new Point(S(4), rowY + S(1));
